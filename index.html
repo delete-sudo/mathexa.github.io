@@ -2,15 +2,58 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Airoglifph</title>
 <script src="system/config.js"></script>
 
 <style>
-body{margin:0;font-family:Arial;background:#111;color:white;transition:.3s}
-header{display:flex;justify-content:space-between;padding:15px;font-size:20px}
-button,input,select{padding:8px;margin:6px}
-canvas{border:1px solid #555;margin-top:10px}
+*{box-sizing:border-box}
+body{
+margin:0;
+font-family:Arial;
+background:#111;
+color:white;
+transition:.3s;
+display:flex;
+flex-direction:column;
+min-height:100vh;
+}
+
+header{
+display:flex;
+justify-content:space-between;
+align-items:center;
+padding:15px;
+font-size:20px;
+background:#000;
+}
+
+main{
+flex:1;
+padding:15px;
+max-width:900px;
+margin:auto;
+width:100%;
+}
+
+button,input,select{
+padding:10px;
+margin:6px 0;
+width:100%;
+max-width:400px;
+}
+
+canvas{
+border:1px solid #444;
+margin-top:10px;
+width:100%;
+height:auto;
+touch-action:none;
+}
+
 .hidden{display:none}
+
+/* THEMES */
 .theme-light{background:#f5f5f5;color:#111}
 .theme-blue{background:#0d1b2a;color:#e0e1dd}
 .theme-green{background:#081c15;color:#d8f3dc}
@@ -24,26 +67,24 @@ canvas{border:1px solid #555;margin-top:10px}
 <div onclick="openSettings()" style="cursor:pointer">⚙️</div>
 </header>
 
+<main>
+
 <div id="startScreen">
-<h2>Hello</h2>
 <input type="file" id="fileInput">
-<button onclick="openWriter()">Write Airoglifph</button>
-<canvas id="readCanvas" width="1200" height="250"></canvas>
+<button onclick="openWriter()">Write</button>
+<canvas id="readCanvas" width="900" height="200"></canvas>
 </div>
 
 <div id="writerScreen" class="hidden">
-<h3>Write Airoglifph</h3>
-<input type="text" id="writerInput">
+<input type="text" id="writerInput" placeholder="Type here">
 <button onclick="generateText()">Preview</button>
 <button onclick="exportEAT()">Export .EAT</button>
-<canvas id="writeCanvas" width="1200" height="250"></canvas>
-<br>
+<canvas id="writeCanvas" width="900" height="200"></canvas>
 <button onclick="goHome()">Back</button>
 </div>
 
 <div id="settingsPanel" class="hidden">
 <h3>Settings</h3>
-
 <select onchange="changeTheme(this.value)">
 <option value="">Default</option>
 <option value="theme-light">Light</option>
@@ -64,25 +105,29 @@ canvas{border:1px solid #555;margin-top:10px}
 <h4>Advanced</h4>
 <button onclick="useCustomFont()">Use Custom Font</button>
 
-<br><br>
 <button onclick="closeSettings()">Close</button>
 </div>
 
 <div id="designerScreen" class="hidden">
-<h3>Font Designer</h3>
 <select id="charSelect"></select>
-<br>
 <canvas id="designCanvas" width="500" height="300"></canvas>
-<br>
-<button onclick="clearCurrentLetter()">Clear Letter</button>
-<button onclick="saveCurrentGlyph()">Save Letter</button>
-<button onclick="exportFont()">Export Full Font</button>
+<button onclick="clearCurrentLetter()">Clear</button>
+<button onclick="saveCurrentGlyph()">Save</button>
+<button onclick="exportFont()">Export Font</button>
 <button onclick="exitDesigner()">Back</button>
 </div>
 
+</main>
+
 <script>
 
-/* ================= ENCODING ================= */
+/* ========= SCALE SETTINGS ========= */
+
+const LETTER_WIDTH = 70;      // smaller
+const LETTER_SPACING = 10;    // tighter spacing
+const GLYPH_SCALE = 0.6;      // reduce size
+
+/* ========= ENCODING ========= */
 
 function encodeData(obj){
 const json=JSON.stringify(obj);
@@ -96,7 +141,7 @@ const json=decodeURIComponent(escape(atob(clean)));
 return JSON.parse(json);
 }
 
-/* ================= GLOBAL ================= */
+/* ========= GLOBAL ========= */
 
 let coreFont={};
 let currentFont={};
@@ -104,14 +149,14 @@ let customFont=null;
 let override=false;
 let lastData=[];
 let designData={};
-let currentChar="A";
 let strokes=[];
+let currentChar="A";
 let drawing=false;
 let currentStroke=[];
 
-/* ================= INIT ================= */
-
 document.getElementById("codeLabel").innerText="Enter Code Type: "+CURRENT_CODE_TYPE;
+
+/* ========= LOAD CORE FONT ========= */
 
 async function loadCoreFont(){
 try{
@@ -121,33 +166,14 @@ const parsed=decodeData(text);
 if(parsed.sig!==SYSTEM_SIGNATURE){alert("Font mismatch");return;}
 coreFont=parsed.font;
 currentFont=coreFont;
-}catch(e){alert("Failed to load font.");}
+}catch(e){alert("Font load failed");}
 }
 loadCoreFont();
 
-/* ================= EXTENSION CHECK ================= */
+/* ========= RENDER FUNCTION ========= */
 
-function validExtension(name){
-if(override) return true;
-return name.endsWith(".AFF")||name.endsWith(".AIROGLIFPH")||name.endsWith(".EAT");
-}
-
-/* ================= READER ================= */
-
-fileInput.addEventListener("change",e=>{
-const file=e.target.files[0];
-if(!validExtension(file.name)){alert("Invalid extension");return;}
-const reader=new FileReader();
-reader.onload=function(ev){
-const parsed=decodeData(ev.target.result);
-renderRead(parsed.data);
-};
-reader.readAsText(file);
-});
-
-function renderRead(data){
-const ctx=readCanvas.getContext("2d");
-ctx.clearRect(0,0,1200,250);
+function drawGlyphs(ctx,data){
+ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
 ctx.strokeStyle="white";
 ctx.lineWidth=2;
 let offset=20;
@@ -155,45 +181,47 @@ data.forEach(letter=>{
 letter.forEach(stroke=>{
 if(stroke.length<2) return;
 ctx.beginPath();
-ctx.moveTo(offset+stroke[0][0],stroke[0][1]);
-for(let i=1;i<stroke.length;i++) ctx.lineTo(offset+stroke[i][0],stroke[i][1]);
+ctx.moveTo(offset+stroke[0][0]*GLYPH_SCALE,stroke[0][1]*GLYPH_SCALE);
+for(let i=1;i<stroke.length;i++){
+ctx.lineTo(offset+stroke[i][0]*GLYPH_SCALE,stroke[i][1]*GLYPH_SCALE);
+}
 ctx.stroke();
 });
-offset+=120;
+offset+=LETTER_WIDTH+LETTER_SPACING;
 });
 }
 
-/* ================= WRITER ================= */
+/* ========= READER ========= */
+
+fileInput.addEventListener("change",e=>{
+const file=e.target.files[0];
+if(!file) return;
+const reader=new FileReader();
+reader.onload=function(ev){
+const parsed=decodeData(ev.target.result);
+drawGlyphs(readCanvas.getContext("2d"),parsed.data);
+};
+reader.readAsText(file);
+});
+
+/* ========= WRITER ========= */
 
 function openWriter(){startScreen.classList.add("hidden");writerScreen.classList.remove("hidden");}
 function goHome(){writerScreen.classList.add("hidden");startScreen.classList.remove("hidden");}
 
 function generateText(){
-if(!currentFont||Object.keys(currentFont).length===0){alert("Font not ready.");return;}
+if(!currentFont||Object.keys(currentFont).length===0){alert("Font not ready");return;}
 const text=writerInput.value;
-const ctx=writeCanvas.getContext("2d");
-ctx.clearRect(0,0,1200,250);
-ctx.strokeStyle="white";
-ctx.lineWidth=2;
-let offset=20;
 lastData=[];
 for(let ch of text){
 let glyph=currentFont[ch]||currentFont[ch.toUpperCase()]||currentFont[ch.toLowerCase()];
-if(!glyph){offset+=120;continue;}
-lastData.push(glyph);
-glyph.forEach(stroke=>{
-if(stroke.length<2) return;
-ctx.beginPath();
-ctx.moveTo(offset+stroke[0][0],stroke[0][1]);
-for(let i=1;i<stroke.length;i++) ctx.lineTo(offset+stroke[i][0],stroke[i][1]);
-ctx.stroke();
-});
-offset+=120;
+if(glyph) lastData.push(glyph);
 }
+drawGlyphs(writeCanvas.getContext("2d"),lastData);
 }
 
 function exportEAT(){
-if(!lastData.length){alert("Nothing to export.");return;}
+if(!lastData.length){alert("Nothing to export");return;}
 const payload={sig:SYSTEM_SIGNATURE,data:lastData};
 const blob=new Blob([encodeData(payload)]);
 const a=document.createElement("a");
@@ -202,64 +230,45 @@ a.download="TEXT.EAT";
 a.click();
 }
 
-/* ================= SETTINGS ================= */
+/* ========= SETTINGS ========= */
 
 function openSettings(){settingsPanel.classList.remove("hidden");}
 function closeSettings(){settingsPanel.classList.add("hidden");}
 function changeTheme(t){document.body.className=t;}
 
 function checkCode(){
-if(btoa(codeInput.value)===ENCODED_CODES[CURRENT_CODE_TYPE]){
-openDesigner();
-}else alert("Wrong Code");
+if(btoa(codeInput.value)===ENCODED_CODES[CURRENT_CODE_TYPE]) openDesigner();
+else alert("Wrong Code");
 }
 
 function checkOverride(){
 if(btoa(overrideInput.value)===ENCODED_OVERRIDE){
-override=true;
-alert("Override Active");
+override=true;alert("Override Active");
 }else alert("Wrong Override");
 }
 
 function useCustomFont(){
-if(!override){alert("Requires override.");return;}
+if(!override){alert("Requires override");return;}
 const input=document.createElement("input");
 input.type="file";
 input.onchange=e=>{
 const reader=new FileReader();
 reader.onload=function(ev){
 const parsed=decodeData(ev.target.result);
-if(parsed.sig!==SYSTEM_SIGNATURE){alert("Invalid font.");return;}
+if(parsed.sig!==SYSTEM_SIGNATURE){alert("Invalid font");return;}
 customFont=parsed.font;
 currentFont=customFont;
-alert("Custom font active.");
 };
 reader.readAsText(e.target.files[0]);
 };
 input.click();
 }
 
-/* ================= DESIGNER ================= */
-
-function loadDesignerData(){
-const saved=localStorage.getItem("airo_font");
-if(saved) designData=JSON.parse(saved);
-}
-
-function saveDesignerData(){
-localStorage.setItem("airo_font",JSON.stringify(designData));
-}
+/* ========= DESIGNER ========= */
 
 function openDesigner(){
 settingsPanel.classList.add("hidden");
 designerScreen.classList.remove("hidden");
-loadDesignerData();
-initDesigner();
-}
-
-function exitDesigner(){designerScreen.classList.add("hidden");}
-
-function initDesigner(){
 const select=document.getElementById("charSelect");
 select.innerHTML="";
 const chars="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzß";
@@ -268,39 +277,32 @@ let o=document.createElement("option");
 o.value=c;o.innerText=c;
 select.appendChild(o);
 }
-select.onchange=function(e){
+select.onchange=e=>{
 saveCurrentGlyph();
 currentChar=e.target.value;
-loadGlyph(currentChar);
+loadGlyph();
 };
 currentChar=select.value;
-loadGlyph(currentChar);
+loadGlyph();
 }
 
-function drawGuidelines(){
-const ctx=designCanvas.getContext("2d");
-ctx.clearRect(0,0,500,300);
-ctx.strokeStyle="red";
-ctx.setLineDash([6,6]);
-ctx.beginPath();ctx.moveTo(0,60);ctx.lineTo(500,60);ctx.stroke();
-ctx.beginPath();ctx.moveTo(0,150);ctx.lineTo(500,150);ctx.stroke();
-ctx.beginPath();ctx.moveTo(0,240);ctx.lineTo(500,240);ctx.stroke();
-ctx.setLineDash([]);
-}
+function exitDesigner(){designerScreen.classList.add("hidden");}
 
-function loadGlyph(letter){
-strokes=designData[letter]?JSON.parse(JSON.stringify(designData[letter])):[];
-redrawCanvas();
+function loadGlyph(){
+const saved=localStorage.getItem("airo_font");
+if(saved) designData=JSON.parse(saved);
+strokes=designData[currentChar]||[];
+redrawDesigner();
 }
 
 function saveCurrentGlyph(){
 designData[currentChar]=strokes;
-saveDesignerData();
+localStorage.setItem("airo_font",JSON.stringify(designData));
 }
 
-function redrawCanvas(){
-drawGuidelines();
+function redrawDesigner(){
 const ctx=designCanvas.getContext("2d");
+ctx.clearRect(0,0,500,300);
 ctx.strokeStyle="white";
 ctx.lineWidth=2;
 strokes.forEach(stroke=>{
@@ -319,7 +321,7 @@ currentStroke=[[e.offsetX,e.offsetY]];
 designCanvas.addEventListener("mousemove",e=>{
 if(!drawing) return;
 currentStroke.push([e.offsetX,e.offsetY]);
-redrawCanvas();
+redrawDesigner();
 const ctx=designCanvas.getContext("2d");
 ctx.beginPath();
 ctx.moveTo(currentStroke[0][0],currentStroke[0][1]);
@@ -333,18 +335,13 @@ drawing=false;
 if(currentStroke.length>1) strokes.push(currentStroke);
 currentStroke=[];
 saveCurrentGlyph();
-redrawCanvas();
-});
-
-designCanvas.addEventListener("mouseleave",()=>{
-drawing=false;
-currentStroke=[];
+redrawDesigner();
 });
 
 function clearCurrentLetter(){
 strokes=[];
 saveCurrentGlyph();
-redrawCanvas();
+redrawDesigner();
 }
 
 function exportFont(){
