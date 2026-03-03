@@ -24,7 +24,6 @@ canvas{border:1px solid #555;margin-top:10px}
 <div onclick="openSettings()" style="cursor:pointer">⚙️</div>
 </header>
 
-<!-- START SCREEN -->
 <div id="startScreen">
 <h2>Hello</h2>
 <input type="file" id="fileInput">
@@ -32,7 +31,6 @@ canvas{border:1px solid #555;margin-top:10px}
 <canvas id="readCanvas" width="1200" height="250"></canvas>
 </div>
 
-<!-- WRITER -->
 <div id="writerScreen" class="hidden">
 <h3>Write Airoglifph</h3>
 <input type="text" id="writerInput">
@@ -43,7 +41,6 @@ canvas{border:1px solid #555;margin-top:10px}
 <button onclick="goHome()">Back</button>
 </div>
 
-<!-- SETTINGS -->
 <div id="settingsPanel" class="hidden">
 <h3>Settings</h3>
 
@@ -71,15 +68,11 @@ canvas{border:1px solid #555;margin-top:10px}
 <button onclick="closeSettings()">Close</button>
 </div>
 
-<!-- DESIGNER -->
 <div id="designerScreen" class="hidden">
 <h3>Font Designer</h3>
-
 <select id="charSelect"></select>
 <br>
-
 <canvas id="designCanvas" width="500" height="300"></canvas>
-
 <br>
 <button onclick="clearCurrentLetter()">Clear Letter</button>
 <button onclick="saveCurrentGlyph()">Save Letter</button>
@@ -89,58 +82,64 @@ canvas{border:1px solid #555;margin-top:10px}
 
 <script>
 
-/* ===== UTIL ===== */
+/* ================= ENCODING ================= */
 
-function hexEncode(str){
-return str.split("").map(c=>c.charCodeAt(0).toString(16).padStart(2,"0")).join("");
-}
-function hexDecode(hex){
-let out="";
-for(let i=0;i<hex.length;i+=2){
-out+=String.fromCharCode(parseInt(hex.substr(i,2),16));
-}
-return out;
+function encodeData(obj){
+const json=JSON.stringify(obj);
+const base64=btoa(unescape(encodeURIComponent(json)));
+return base64.match(/.{1,80}/g).join("\n");
 }
 
-/* ===== GLOBAL STATE ===== */
+function decodeData(text){
+const clean=text.replace(/\n/g,"");
+const json=decodeURIComponent(escape(atob(clean)));
+return JSON.parse(json);
+}
 
-let activeFont = {};
-let override = false;
-let currentChar = "A";
-let designData = {};
-let drawing = false;
-let currentStroke = [];
-let strokes = [];
-let lastData = [];
+/* ================= GLOBAL ================= */
 
-/* ===== INIT ===== */
+let coreFont={};
+let currentFont={};
+let customFont=null;
+let override=false;
+let lastData=[];
+let designData={};
+let currentChar="A";
+let strokes=[];
+let drawing=false;
+let currentStroke=[];
+
+/* ================= INIT ================= */
 
 document.getElementById("codeLabel").innerText="Enter Code Type: "+CURRENT_CODE_TYPE;
 
-fetch("fonts/AIROGLIFPH.AIROGLIFPH")
-.then(r=>r.text())
-.then(data=>{
+async function loadCoreFont(){
 try{
-const parsed = JSON.parse(hexDecode(data));
-activeFont = parsed.font;
-}catch{}
-});
+const res=await fetch("fonts/AIROGLIFPH.AIROGLIFPH");
+const text=await res.text();
+const parsed=decodeData(text);
+if(parsed.sig!==SYSTEM_SIGNATURE){alert("Font mismatch");return;}
+coreFont=parsed.font;
+currentFont=coreFont;
+}catch(e){alert("Failed to load font.");}
+}
+loadCoreFont();
 
-/* ===== EXTENSION CHECK ===== */
+/* ================= EXTENSION CHECK ================= */
 
 function validExtension(name){
 if(override) return true;
-return name.endsWith(".AFF") || name.endsWith(".AIROGLIFPH") || name.endsWith(".EAT");
+return name.endsWith(".AFF")||name.endsWith(".AIROGLIFPH")||name.endsWith(".EAT");
 }
 
-/* ===== FILE READ ===== */
+/* ================= READER ================= */
 
 fileInput.addEventListener("change",e=>{
 const file=e.target.files[0];
 if(!validExtension(file.name)){alert("Invalid extension");return;}
 const reader=new FileReader();
 reader.onload=function(ev){
-const parsed=JSON.parse(hexDecode(ev.target.result));
+const parsed=decodeData(ev.target.result);
 renderRead(parsed.data);
 };
 reader.readAsText(file);
@@ -149,9 +148,12 @@ reader.readAsText(file);
 function renderRead(data){
 const ctx=readCanvas.getContext("2d");
 ctx.clearRect(0,0,1200,250);
+ctx.strokeStyle="white";
+ctx.lineWidth=2;
 let offset=20;
 data.forEach(letter=>{
 letter.forEach(stroke=>{
+if(stroke.length<2) return;
 ctx.beginPath();
 ctx.moveTo(offset+stroke[0][0],stroke[0][1]);
 for(let i=1;i<stroke.length;i++) ctx.lineTo(offset+stroke[i][0],stroke[i][1]);
@@ -161,29 +163,26 @@ offset+=120;
 });
 }
 
-/* ===== WRITER ===== */
+/* ================= WRITER ================= */
 
-function openWriter(){
-startScreen.classList.add("hidden");
-writerScreen.classList.remove("hidden");
-}
-
-function goHome(){
-writerScreen.classList.add("hidden");
-startScreen.classList.remove("hidden");
-}
+function openWriter(){startScreen.classList.add("hidden");writerScreen.classList.remove("hidden");}
+function goHome(){writerScreen.classList.add("hidden");startScreen.classList.remove("hidden");}
 
 function generateText(){
+if(!currentFont||Object.keys(currentFont).length===0){alert("Font not ready.");return;}
 const text=writerInput.value;
 const ctx=writeCanvas.getContext("2d");
 ctx.clearRect(0,0,1200,250);
+ctx.strokeStyle="white";
+ctx.lineWidth=2;
 let offset=20;
 lastData=[];
 for(let ch of text){
-if(!activeFont[ch]){offset+=120;continue;}
-const strokes=activeFont[ch];
-lastData.push(strokes);
-strokes.forEach(stroke=>{
+let glyph=currentFont[ch]||currentFont[ch.toUpperCase()]||currentFont[ch.toLowerCase()];
+if(!glyph){offset+=120;continue;}
+lastData.push(glyph);
+glyph.forEach(stroke=>{
+if(stroke.length<2) return;
 ctx.beginPath();
 ctx.moveTo(offset+stroke[0][0],stroke[0][1]);
 for(let i=1;i<stroke.length;i++) ctx.lineTo(offset+stroke[i][0],stroke[i][1]);
@@ -194,53 +193,57 @@ offset+=120;
 }
 
 function exportEAT(){
+if(!lastData.length){alert("Nothing to export.");return;}
 const payload={sig:SYSTEM_SIGNATURE,data:lastData};
-const blob=new Blob([hexEncode(JSON.stringify(payload))]);
+const blob=new Blob([encodeData(payload)]);
 const a=document.createElement("a");
 a.href=URL.createObjectURL(blob);
 a.download="TEXT.EAT";
 a.click();
 }
 
-/* ===== SETTINGS ===== */
+/* ================= SETTINGS ================= */
 
 function openSettings(){settingsPanel.classList.remove("hidden");}
 function closeSettings(){settingsPanel.classList.add("hidden");}
 function changeTheme(t){document.body.className=t;}
 
 function checkCode(){
-if(hexEncode(codeInput.value)===ENCODED_CODES[CURRENT_CODE_TYPE]){
+if(btoa(codeInput.value)===ENCODED_CODES[CURRENT_CODE_TYPE]){
 openDesigner();
 }else alert("Wrong Code");
 }
 
 function checkOverride(){
-if(hexEncode(overrideInput.value)===ENCODED_OVERRIDE){
+if(btoa(overrideInput.value)===ENCODED_OVERRIDE){
 override=true;
 alert("Override Active");
 }else alert("Wrong Override");
 }
 
 function useCustomFont(){
-if(!override){alert("Requires override");return;}
+if(!override){alert("Requires override.");return;}
 const input=document.createElement("input");
 input.type="file";
 input.onchange=e=>{
 const reader=new FileReader();
 reader.onload=function(ev){
-const parsed=JSON.parse(hexDecode(ev.target.result));
-activeFont=parsed.font;
+const parsed=decodeData(ev.target.result);
+if(parsed.sig!==SYSTEM_SIGNATURE){alert("Invalid font.");return;}
+customFont=parsed.font;
+currentFont=customFont;
+alert("Custom font active.");
 };
 reader.readAsText(e.target.files[0]);
 };
 input.click();
 }
 
-/* ===== DESIGNER ===== */
+/* ================= DESIGNER ================= */
 
 function loadDesignerData(){
 const saved=localStorage.getItem("airo_font");
-if(saved){designData=JSON.parse(saved);}
+if(saved) designData=JSON.parse(saved);
 }
 
 function saveDesignerData(){
@@ -254,9 +257,7 @@ loadDesignerData();
 initDesigner();
 }
 
-function exitDesigner(){
-designerScreen.classList.add("hidden");
-}
+function exitDesigner(){designerScreen.classList.add("hidden");}
 
 function initDesigner(){
 const select=document.getElementById("charSelect");
@@ -264,8 +265,7 @@ select.innerHTML="";
 const chars="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzß";
 for(let c of chars){
 let o=document.createElement("option");
-o.value=c;
-o.innerText=c;
+o.value=c;o.innerText=c;
 select.appendChild(o);
 }
 select.onchange=function(e){
@@ -350,7 +350,7 @@ redrawCanvas();
 function exportFont(){
 saveCurrentGlyph();
 const payload={sig:SYSTEM_SIGNATURE,font:designData};
-const blob=new Blob([hexEncode(JSON.stringify(payload))]);
+const blob=new Blob([encodeData(payload)]);
 const a=document.createElement("a");
 a.href=URL.createObjectURL(blob);
 a.download="AIROGLIFPH.AIROGLIFPH";
