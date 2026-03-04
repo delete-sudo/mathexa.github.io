@@ -8,37 +8,34 @@
 
 <style>
 *{box-sizing:border-box}
+
 body{
 margin:0;
 font-family:Arial;
 background:#111;
 color:white;
-display:flex;
-flex-direction:column;
-min-height:100vh;
+overflow:hidden;
 }
 
 header{
 display:flex;
 justify-content:space-between;
 align-items:center;
-padding:12px;
+padding:12px 16px;
 background:#000;
 }
 
 main{
-flex:1;
 padding:15px;
-max-width:900px;
-margin:auto;
-width:100%;
+height:calc(100vh - 50px);
+overflow:auto;
 }
 
 button,input,select{
-padding:10px;
+padding:8px;
 margin:6px 0;
 width:100%;
-max-width:420px;
+max-width:400px;
 }
 
 canvas{
@@ -46,7 +43,31 @@ border:1px solid #333;
 margin-top:10px;
 width:100%;
 height:auto;
-touch-action:none;
+display:block;
+}
+
+/* OVERLAY */
+.overlay{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:rgba(0,0,0,.85);
+display:none;
+justify-content:center;
+align-items:center;
+z-index:10;
+}
+
+.overlay-content{
+background:#1a1a1a;
+padding:20px;
+width:90%;
+max-width:500px;
+max-height:90vh;
+overflow:auto;
+border:1px solid #333;
 }
 
 .hidden{display:none}
@@ -61,297 +82,321 @@ touch-action:none;
 
 <main>
 
-<div id="startScreen">
-<input type="file" id="fileInput">
-<button onclick="openWriter()">Write</button>
-<canvas id="readCanvas" width="900" height="400"></canvas>
-</div>
-
-<div id="writerScreen" class="hidden">
 <input type="text" id="writerInput" placeholder="Type here">
-<button onclick="generateText()">Preview</button>
-<button onclick="exportEAT()">Export .EAT</button>
-<canvas id="writeCanvas" width="900" height="400"></canvas>
-<button onclick="goHome()">Back</button>
-</div>
-
-<div id="settingsPanel" class="hidden">
-<h3>Settings</h3>
-<div id="codeLabel"></div>
-<input type="text" id="codeInput">
-<button onclick="checkCode()">Enter Designer</button>
-<button onclick="closeSettings()">Close</button>
-</div>
-
-<div id="designerScreen" class="hidden">
-<select id="charSelect"></select>
-<canvas id="designCanvas" width="400" height="250"></canvas>
-<button onclick="clearCurrentLetter()">Clear</button>
-<button onclick="saveCurrentGlyph()">Save</button>
-<button onclick="exportFont()">Export Font</button>
-<button onclick="exitDesigner()">Back</button>
-</div>
+<button onclick="render()">Preview</button>
+<canvas id="writeCanvas" width="900" height="500"></canvas>
 
 </main>
 
+<!-- SETTINGS OVERLAY -->
+<div class="overlay" id="settingsOverlay">
+<div class="overlay-content">
+
+<h3>Themes</h3>
+<select onchange="changeTheme(this.value)">
+<option value="dark">Dark</option>
+<option value="light">Light</option>
+<option value="blue">Blue</option>
+</select>
+
+<h3>Advanced</h3>
+
+<label>
+<input type="checkbox" id="guideToggle" onchange="toggleGuides()">
+ Show Guidelines
+</label>
+
+<h4>Enter Developer</h4>
+<input type="text" id="devCode">
+<button onclick="enterDeveloper()">Enter</button>
+
+<div id="developerPanel" class="hidden">
+<button onclick="openDesigner()">Open Designer</button>
+
+<h4>More Advanced Features</h4>
+<input type="text" id="overrideCode">
+<button onclick="enterOverride()">System Override</button>
+</div>
+
+<br>
+<button onclick="closeSettings()">Close</button>
+
+</div>
+</div>
+
+<!-- DESIGNER -->
+<div class="overlay" id="designerOverlay">
+<div class="overlay-content">
+
+<select id="charSelect"></select>
+<canvas id="designCanvas" width="400" height="300"></canvas>
+
+<button onclick="clearGlyph()">Clear</button>
+<button onclick="saveGlyph()">Save</button>
+<button onclick="exportFont()">Export Font</button>
+<button onclick="closeDesigner()">Close</button>
+
+</div>
+</div>
+
 <script>
 
-/* ================= FONT METRICS ================= */
+/* ================= METRICS ================= */
 
-const LETTER_WIDTH = 24;
+const LETTER_BOX_WIDTH = 26;
 const LETTER_SPACING = 2;
 const WORD_SPACING = 10;
-const LINE_HEIGHT = 42;
+const LINE_HEIGHT = 38;
 const SCALE = 0.35;
-
-/* ================= ENCODE / DECODE ================= */
-
-function encodeData(obj){
-const json=JSON.stringify(obj);
-return btoa(unescape(encodeURIComponent(json)));
-}
-
-function decodeData(text){
-return JSON.parse(decodeURIComponent(escape(atob(text))));
-}
 
 /* ================= GLOBAL ================= */
 
-let coreFont={};
-let currentFont={};
-let designData={};
-let strokes=[];
-let currentChar="";
-let drawing=false;
-let currentStroke=[];
+let fontData = {};
+let strokes = [];
+let currentChar = "";
+let drawing = false;
+let showGuides = false;
+let override = false;
 
-document.getElementById("codeLabel").innerText="Enter Code Type: "+CURRENT_CODE_TYPE;
+/* ================= LOAD LOCAL FONT ================= */
 
-/* ================= LOAD CORE FONT ================= */
-
-async function loadCoreFont(){
-const res=await fetch("fonts/AIROGLIFPH.AIROGLIFPH");
-const text=await res.text();
-const parsed=decodeData(text);
-coreFont=parsed.font;
-currentFont=coreFont;
+function loadFont(){
+let saved = localStorage.getItem("airo_font");
+if(saved) fontData = JSON.parse(saved);
 }
-loadCoreFont();
+loadFont();
 
 /* ================= TEXT ENGINE ================= */
 
-function renderText(ctx,text){
-ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
+function render(){
+let ctx = writeCanvas.getContext("2d");
+ctx.clearRect(0,0,writeCanvas.width,writeCanvas.height);
 ctx.strokeStyle="white";
 ctx.fillStyle="white";
 ctx.lineWidth=1.5;
 ctx.font="16px Arial";
 
-let x=5;
-let y=20;
-let maxWidth=ctx.canvas.width-5;
+let text = writerInput.value;
+let x = 5;
+let y = 20;
+let maxWidth = writeCanvas.width - 5;
+
+function newLine(){
+x = 5;
+y += LINE_HEIGHT;
+}
 
 function drawGlyph(glyph){
+
+let centeredX = x + (LETTER_BOX_WIDTH/2);
+
 glyph.forEach(stroke=>{
-if(stroke.length<2) return;
 ctx.beginPath();
-ctx.moveTo(x+stroke[0][0]*SCALE,y+stroke[0][1]*SCALE);
+ctx.moveTo(centeredX + (stroke[0][0]-200)*SCALE,
+           y + (stroke[0][1]-120)*SCALE);
+
 for(let i=1;i<stroke.length;i++){
-ctx.lineTo(x+stroke[i][0]*SCALE,y+stroke[i][1]*SCALE);
+ctx.lineTo(centeredX + (stroke[i][0]-200)*SCALE,
+           y + (stroke[i][1]-120)*SCALE);
 }
 ctx.stroke();
 });
 }
 
-function newLine(){
-x=5;
-y+=LINE_HEIGHT;
-}
-
 for(let i=0;i<text.length;i++){
 
-let ch=text[i];
+let ch = text[i];
 
 if(ch===" "){
 x+=WORD_SPACING;
 continue;
 }
 
-let glyph=currentFont[ch]||
-currentFont[ch.toUpperCase()]||
-currentFont[ch.toLowerCase()];
+let glyph = fontData[ch];
 
 if(glyph){
 
-if(x+LETTER_WIDTH>maxWidth){
-let prev=text[i-1];
-if(prev && prev!==" "){
+if(x+LETTER_BOX_WIDTH > maxWidth){
 ctx.fillText("-",x,y);
-}
 newLine();
 }
 
 drawGlyph(glyph);
-x+=LETTER_WIDTH+LETTER_SPACING;
+x+=LETTER_BOX_WIDTH+LETTER_SPACING;
 
 }else{
 
-let width=ctx.measureText(ch).width;
+let w = ctx.measureText(ch).width;
 
-if(x+width>maxWidth){
+if(x+w>maxWidth){
 newLine();
 }
 
 ctx.fillText(ch,x,y);
-x+=width+LETTER_SPACING;
+x+=w+LETTER_SPACING;
 }
 }
 }
 
-/* ================= WRITER ================= */
+/* ================= SETTINGS ================= */
 
-function openWriter(){
-startScreen.classList.add("hidden");
-writerScreen.classList.remove("hidden");
+function openSettings(){
+settingsOverlay.style.display="flex";
 }
 
-function goHome(){
-writerScreen.classList.add("hidden");
-startScreen.classList.remove("hidden");
+function closeSettings(){
+settingsOverlay.style.display="none";
 }
 
-function generateText(){
-renderText(writeCanvas.getContext("2d"),writerInput.value);
+function changeTheme(val){
+if(val==="light"){
+document.body.style.background="#f5f5f5";
+document.body.style.color="#111";
+}
+if(val==="blue"){
+document.body.style.background="#0d1b2a";
+document.body.style.color="#e0e1dd";
+}
+if(val==="dark"){
+document.body.style.background="#111";
+document.body.style.color="#fff";
+}
 }
 
-/* ================= READER ================= */
+function toggleGuides(){
+showGuides=document.getElementById("guideToggle").checked;
+}
 
-fileInput.addEventListener("change",e=>{
-const file=e.target.files[0];
-const reader=new FileReader();
-reader.onload=function(ev){
-const parsed=decodeData(ev.target.result);
-renderText(readCanvas.getContext("2d"),parsed.data);
-};
-reader.readAsText(file);
-});
+/* ================= DEV ACCESS ================= */
 
-/* ================= EXPORT ================= */
+function enterDeveloper(){
+if(btoa(devCode.value)===ENCODED_CODES[CURRENT_CODE_TYPE]){
+developerPanel.classList.remove("hidden");
+}else alert("Wrong code");
+}
 
-function exportEAT(){
-const payload={sig:SYSTEM_SIGNATURE,data:writerInput.value};
-const blob=new Blob([encodeData(payload)]);
-const a=document.createElement("a");
-a.href=URL.createObjectURL(blob);
-a.download="TEXT.EAT";
-a.click();
+function enterOverride(){
+if(btoa(overrideCode.value)===ENCODED_OVERRIDE){
+override=true;
+alert("Override active");
+}else alert("Wrong override");
 }
 
 /* ================= DESIGNER ================= */
 
-function openSettings(){settingsPanel.classList.remove("hidden");}
-function closeSettings(){settingsPanel.classList.add("hidden");}
-
-function checkCode(){
-if(btoa(codeInput.value)===ENCODED_CODES[CURRENT_CODE_TYPE])
-openDesigner();
-else alert("Wrong Code");
+function openDesigner(){
+designerOverlay.style.display="flex";
+initDesigner();
 }
 
-function openDesigner(){
-settingsPanel.classList.add("hidden");
-designerScreen.classList.remove("hidden");
+function closeDesigner(){
+designerOverlay.style.display="none";
+}
 
-let saved=localStorage.getItem("airo_font");
-if(saved) designData=JSON.parse(saved);
+function initDesigner(){
 
-const chars=
+const chars =
 "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"+
-"ĄČĘĖĮŠŲŪŽąčęėįšųūž0123456789";
+"ĄČĘĖĮŠŲŪŽąčęėįšųūž"+
+"0123456789!?.,:;+-*/=()[]{}@#%^&<>";
 
-let select=document.getElementById("charSelect");
+let select = document.getElementById("charSelect");
 select.innerHTML="";
+
 for(let c of chars){
 let o=document.createElement("option");
 o.value=c;
 o.innerText=c;
 select.appendChild(o);
 }
-select.onchange=e=>{
-saveCurrentGlyph();
-currentChar=e.target.value;
+
+select.onchange = e=>{
+saveGlyph();
+currentChar = e.target.value;
 loadGlyph();
 };
-currentChar=select.value;
+
+currentChar = select.value;
 loadGlyph();
 }
 
 function loadGlyph(){
-strokes=designData[currentChar]||[];
+strokes = fontData[currentChar] || [];
 redrawDesigner();
 }
 
 function redrawDesigner(){
-const ctx=designCanvas.getContext("2d");
-ctx.clearRect(0,0,400,250);
+
+let ctx = designCanvas.getContext("2d");
+ctx.clearRect(0,0,designCanvas.width,designCanvas.height);
 ctx.strokeStyle="white";
 ctx.lineWidth=2;
+
+if(showGuides){
+ctx.strokeStyle="red";
+ctx.setLineDash([5,5]);
+ctx.beginPath();
+ctx.moveTo(0,150);
+ctx.lineTo(400,150);
+ctx.stroke();
+ctx.setLineDash([]);
+ctx.strokeStyle="white";
+}
+
 strokes.forEach(stroke=>{
 ctx.beginPath();
 ctx.moveTo(stroke[0][0],stroke[0][1]);
-for(let i=1;i<stroke.length;i++) ctx.lineTo(stroke[i][0],stroke[i][1]);
+for(let i=1;i<stroke.length;i++){
+ctx.lineTo(stroke[i][0],stroke[i][1]);
+}
 ctx.stroke();
 });
 }
 
 designCanvas.addEventListener("mousedown",e=>{
+let rect=designCanvas.getBoundingClientRect();
 drawing=true;
-currentStroke=[[e.offsetX,e.offsetY]];
+strokes.push([]);
+strokes[strokes.length-1].push([
+e.clientX-rect.left,
+e.clientY-rect.top
+]);
 });
 
 designCanvas.addEventListener("mousemove",e=>{
 if(!drawing) return;
-currentStroke.push([e.offsetX,e.offsetY]);
+let rect=designCanvas.getBoundingClientRect();
+strokes[strokes.length-1].push([
+e.clientX-rect.left,
+e.clientY-rect.top
+]);
 redrawDesigner();
-let ctx=designCanvas.getContext("2d");
-ctx.beginPath();
-ctx.moveTo(currentStroke[0][0],currentStroke[0][1]);
-for(let i=1;i<currentStroke.length;i++) ctx.lineTo(currentStroke[i][0],currentStroke[i][1]);
-ctx.stroke();
 });
 
 designCanvas.addEventListener("mouseup",()=>{
-if(!drawing) return;
 drawing=false;
-if(currentStroke.length>1) strokes.push(currentStroke);
-currentStroke=[];
-saveCurrentGlyph();
-redrawDesigner();
+saveGlyph();
 });
 
-function clearCurrentLetter(){
+function clearGlyph(){
 strokes=[];
-saveCurrentGlyph();
+saveGlyph();
 redrawDesigner();
 }
 
-function saveCurrentGlyph(){
-designData[currentChar]=strokes;
-localStorage.setItem("airo_font",JSON.stringify(designData));
+function saveGlyph(){
+fontData[currentChar]=strokes;
+localStorage.setItem("airo_font",JSON.stringify(fontData));
 }
 
 function exportFont(){
-saveCurrentGlyph();
-const payload={sig:SYSTEM_SIGNATURE,font:designData};
-const blob=new Blob([encodeData(payload)]);
+saveGlyph();
+const payload={sig:SYSTEM_SIGNATURE,font:fontData};
+const blob=new Blob([btoa(JSON.stringify(payload))]);
 const a=document.createElement("a");
 a.href=URL.createObjectURL(blob);
 a.download="AIROGLIFPH.AIROGLIFPH";
 a.click();
-}
-
-function exitDesigner(){
-designerScreen.classList.add("hidden");
 }
 
 </script>
