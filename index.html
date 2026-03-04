@@ -22,9 +22,8 @@ header{
 display:flex;
 justify-content:space-between;
 align-items:center;
-padding:14px;
+padding:12px;
 background:#000;
-font-size:18px;
 }
 
 main{
@@ -51,11 +50,6 @@ touch-action:none;
 }
 
 .hidden{display:none}
-
-.theme-light{background:#f5f5f5;color:#111}
-.theme-blue{background:#0d1b2a;color:#e0e1dd}
-.theme-green{background:#081c15;color:#d8f3dc}
-.theme-purple{background:#240046;color:#f3e8ff}
 </style>
 </head>
 <body>
@@ -70,45 +64,28 @@ touch-action:none;
 <div id="startScreen">
 <input type="file" id="fileInput">
 <button onclick="openWriter()">Write</button>
-<canvas id="readCanvas" width="900" height="300"></canvas>
+<canvas id="readCanvas" width="900" height="400"></canvas>
 </div>
 
 <div id="writerScreen" class="hidden">
 <input type="text" id="writerInput" placeholder="Type here">
 <button onclick="generateText()">Preview</button>
 <button onclick="exportEAT()">Export .EAT</button>
-<canvas id="writeCanvas" width="900" height="300"></canvas>
+<canvas id="writeCanvas" width="900" height="400"></canvas>
 <button onclick="goHome()">Back</button>
 </div>
 
 <div id="settingsPanel" class="hidden">
 <h3>Settings</h3>
-<select onchange="changeTheme(this.value)">
-<option value="">Default</option>
-<option value="theme-light">Light</option>
-<option value="theme-blue">Blue</option>
-<option value="theme-green">Green</option>
-<option value="theme-purple">Purple</option>
-</select>
-
-<h4>Designer Access</h4>
 <div id="codeLabel"></div>
 <input type="text" id="codeInput">
-<button onclick="checkCode()">Enter</button>
-
-<h4>Override</h4>
-<input type="text" id="overrideInput">
-<button onclick="checkOverride()">Activate</button>
-
-<h4>Advanced</h4>
-<button onclick="useCustomFont()">Use Custom Font</button>
-
+<button onclick="checkCode()">Enter Designer</button>
 <button onclick="closeSettings()">Close</button>
 </div>
 
 <div id="designerScreen" class="hidden">
 <select id="charSelect"></select>
-<canvas id="designCanvas" width="500" height="300"></canvas>
+<canvas id="designCanvas" width="400" height="250"></canvas>
 <button onclick="clearCurrentLetter()">Clear</button>
 <button onclick="saveCurrentGlyph()">Save</button>
 <button onclick="exportFont()">Export Font</button>
@@ -121,37 +98,36 @@ touch-action:none;
 
 /* ================= FONT METRICS ================= */
 
-const LETTER_WIDTH = 38;      // tight like real font
-const LETTER_SPACING = 4;     // very small spacing
-const WORD_SPACING = 18;      // distinguishable space
-const LINE_HEIGHT = 85;
-const SCALE = 0.45;
+const LETTER_WIDTH = 24;
+const LETTER_SPACING = 2;
+const WORD_SPACING = 10;
+const LINE_HEIGHT = 42;
+const SCALE = 0.35;
 
-/* ================= ENCODING ================= */
+/* ================= ENCODE / DECODE ================= */
 
 function encodeData(obj){
 const json=JSON.stringify(obj);
-const base64=btoa(unescape(encodeURIComponent(json)));
-return base64.match(/.{1,80}/g).join("\n");
+return btoa(unescape(encodeURIComponent(json)));
 }
 
 function decodeData(text){
-const clean=text.replace(/\n/g,"");
-const json=decodeURIComponent(escape(atob(clean)));
-return JSON.parse(json);
+return JSON.parse(decodeURIComponent(escape(atob(text))));
 }
 
 /* ================= GLOBAL ================= */
 
 let coreFont={};
 let currentFont={};
-let customFont=null;
-let override=false;
-let lastData=[];
+let designData={};
+let strokes=[];
+let currentChar="";
+let drawing=false;
+let currentStroke=[];
 
 document.getElementById("codeLabel").innerText="Enter Code Type: "+CURRENT_CODE_TYPE;
 
-/* ================= LOAD FONT ================= */
+/* ================= LOAD CORE FONT ================= */
 
 async function loadCoreFont(){
 const res=await fetch("fonts/AIROGLIFPH.AIROGLIFPH");
@@ -162,16 +138,18 @@ currentFont=coreFont;
 }
 loadCoreFont();
 
-/* ================= SMART DRAW ================= */
+/* ================= TEXT ENGINE ================= */
 
-function drawSmart(ctx,text){
+function renderText(ctx,text){
 ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
 ctx.strokeStyle="white";
-ctx.lineWidth=2;
+ctx.fillStyle="white";
+ctx.lineWidth=1.5;
+ctx.font="16px Arial";
 
-let x=20;
-let y=60;
-let maxWidth=ctx.canvas.width-20;
+let x=5;
+let y=20;
+let maxWidth=ctx.canvas.width-5;
 
 function drawGlyph(glyph){
 glyph.forEach(stroke=>{
@@ -185,40 +163,48 @@ ctx.stroke();
 });
 }
 
-const words=text.split(" ");
-
-for(let w=0; w<words.length; w++){
-
-let word=words[w];
-let wordWidth=word.length*(LETTER_WIDTH+LETTER_SPACING);
-
-if(x+wordWidth>maxWidth){
-if(wordWidth>maxWidth){
-for(let i=0;i<word.length;i++){
-if(x+LETTER_WIDTH>maxWidth){
-x=20;
+function newLine(){
+x=5;
 y+=LINE_HEIGHT;
 }
-let glyph=currentFont[word[i]];
-if(glyph) drawGlyph(glyph);
-x+=LETTER_WIDTH+LETTER_SPACING;
-}
-}else{
-x=20;
-y+=LINE_HEIGHT;
-}
+
+for(let i=0;i<text.length;i++){
+
+let ch=text[i];
+
+if(ch===" "){
+x+=WORD_SPACING;
+continue;
 }
 
-for(let i=0;i<word.length;i++){
-let ch=word[i];
-let glyph=currentFont[ch]||currentFont[ch.toUpperCase()]||currentFont[ch.toLowerCase()];
+let glyph=currentFont[ch]||
+currentFont[ch.toUpperCase()]||
+currentFont[ch.toLowerCase()];
+
 if(glyph){
+
+if(x+LETTER_WIDTH>maxWidth){
+let prev=text[i-1];
+if(prev && prev!==" "){
+ctx.fillText("-",x,y);
+}
+newLine();
+}
+
 drawGlyph(glyph);
 x+=LETTER_WIDTH+LETTER_SPACING;
-}
+
+}else{
+
+let width=ctx.measureText(ch).width;
+
+if(x+width>maxWidth){
+newLine();
 }
 
-x+=WORD_SPACING;
+ctx.fillText(ch,x,y);
+x+=width+LETTER_SPACING;
+}
 }
 }
 
@@ -235,9 +221,20 @@ startScreen.classList.remove("hidden");
 }
 
 function generateText(){
-if(!currentFont) return;
-drawSmart(writeCanvas.getContext("2d"),writerInput.value);
+renderText(writeCanvas.getContext("2d"),writerInput.value);
 }
+
+/* ================= READER ================= */
+
+fileInput.addEventListener("change",e=>{
+const file=e.target.files[0];
+const reader=new FileReader();
+reader.onload=function(ev){
+const parsed=decodeData(ev.target.result);
+renderText(readCanvas.getContext("2d"),parsed.data);
+};
+reader.readAsText(file);
+});
 
 /* ================= EXPORT ================= */
 
@@ -250,23 +247,10 @@ a.download="TEXT.EAT";
 a.click();
 }
 
-/* ================= READER ================= */
-
-fileInput.addEventListener("change",e=>{
-const file=e.target.files[0];
-const reader=new FileReader();
-reader.onload=function(ev){
-const parsed=decodeData(ev.target.result);
-drawSmart(readCanvas.getContext("2d"),parsed.data);
-};
-reader.readAsText(file);
-});
-
-/* ================= SETTINGS ================= */
+/* ================= DESIGNER ================= */
 
 function openSettings(){settingsPanel.classList.remove("hidden");}
 function closeSettings(){settingsPanel.classList.add("hidden");}
-function changeTheme(t){document.body.className=t;}
 
 function checkCode(){
 if(btoa(codeInput.value)===ENCODED_CODES[CURRENT_CODE_TYPE])
@@ -274,58 +258,101 @@ openDesigner();
 else alert("Wrong Code");
 }
 
-function checkOverride(){
-if(btoa(overrideInput.value)===ENCODED_OVERRIDE){
-override=true;
-alert("Override Active");
-}else alert("Wrong Override");
-}
-
-function useCustomFont(){
-if(!override){alert("Requires override");return;}
-const input=document.createElement("input");
-input.type="file";
-input.onchange=e=>{
-const reader=new FileReader();
-reader.onload=function(ev){
-const parsed=decodeData(ev.target.result);
-customFont=parsed.font;
-currentFont=customFont;
-};
-reader.readAsText(e.target.files[0]);
-};
-input.click();
-}
-
-/* ================= DESIGNER ================= */
-
 function openDesigner(){
 settingsPanel.classList.add("hidden");
 designerScreen.classList.remove("hidden");
-const select=document.getElementById("charSelect");
-select.innerHTML="";
+
+let saved=localStorage.getItem("airo_font");
+if(saved) designData=JSON.parse(saved);
 
 const chars=
-"ABCDEFGHIJKLMNOPQRSTUVWXYZ"+
-"abcdefghijklmnopqrstuvwxyz"+
-"ĄČĘĖĮŠŲŪŽ"+
-"ąčęėįšųūž";
+"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"+
+"ĄČĘĖĮŠŲŪŽąčęėįšųūž0123456789";
 
+let select=document.getElementById("charSelect");
+select.innerHTML="";
 for(let c of chars){
 let o=document.createElement("option");
 o.value=c;
 o.innerText=c;
 select.appendChild(o);
 }
+select.onchange=e=>{
+saveCurrentGlyph();
+currentChar=e.target.value;
+loadGlyph();
+};
+currentChar=select.value;
+loadGlyph();
+}
+
+function loadGlyph(){
+strokes=designData[currentChar]||[];
+redrawDesigner();
+}
+
+function redrawDesigner(){
+const ctx=designCanvas.getContext("2d");
+ctx.clearRect(0,0,400,250);
+ctx.strokeStyle="white";
+ctx.lineWidth=2;
+strokes.forEach(stroke=>{
+ctx.beginPath();
+ctx.moveTo(stroke[0][0],stroke[0][1]);
+for(let i=1;i<stroke.length;i++) ctx.lineTo(stroke[i][0],stroke[i][1]);
+ctx.stroke();
+});
+}
+
+designCanvas.addEventListener("mousedown",e=>{
+drawing=true;
+currentStroke=[[e.offsetX,e.offsetY]];
+});
+
+designCanvas.addEventListener("mousemove",e=>{
+if(!drawing) return;
+currentStroke.push([e.offsetX,e.offsetY]);
+redrawDesigner();
+let ctx=designCanvas.getContext("2d");
+ctx.beginPath();
+ctx.moveTo(currentStroke[0][0],currentStroke[0][1]);
+for(let i=1;i<currentStroke.length;i++) ctx.lineTo(currentStroke[i][0],currentStroke[i][1]);
+ctx.stroke();
+});
+
+designCanvas.addEventListener("mouseup",()=>{
+if(!drawing) return;
+drawing=false;
+if(currentStroke.length>1) strokes.push(currentStroke);
+currentStroke=[];
+saveCurrentGlyph();
+redrawDesigner();
+});
+
+function clearCurrentLetter(){
+strokes=[];
+saveCurrentGlyph();
+redrawDesigner();
+}
+
+function saveCurrentGlyph(){
+designData[currentChar]=strokes;
+localStorage.setItem("airo_font",JSON.stringify(designData));
+}
+
+function exportFont(){
+saveCurrentGlyph();
+const payload={sig:SYSTEM_SIGNATURE,font:designData};
+const blob=new Blob([encodeData(payload)]);
+const a=document.createElement("a");
+a.href=URL.createObjectURL(blob);
+a.download="AIROGLIFPH.AIROGLIFPH";
+a.click();
 }
 
 function exitDesigner(){
 designerScreen.classList.add("hidden");
 }
-
-function clearCurrentLetter(){}
-function saveCurrentGlyph(){}
-function exportFont(){}
 
 </script>
 </body>
