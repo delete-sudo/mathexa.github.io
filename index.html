@@ -8,7 +8,6 @@
 
 <style>
 *{box-sizing:border-box}
-
 body{
 margin:0;
 font-family:Arial;
@@ -46,7 +45,6 @@ height:auto;
 display:block;
 }
 
-/* OVERLAY */
 .overlay{
 position:fixed;
 top:0;
@@ -81,46 +79,30 @@ border:1px solid #333;
 </header>
 
 <main>
-
 <input type="text" id="writerInput" placeholder="Type here">
 <button onclick="render()">Preview</button>
 <canvas id="writeCanvas" width="900" height="500"></canvas>
-
 </main>
 
-<!-- SETTINGS OVERLAY -->
+<!-- SETTINGS -->
 <div class="overlay" id="settingsOverlay">
 <div class="overlay-content">
 
-<h3>Themes</h3>
-<select onchange="changeTheme(this.value)">
-<option value="dark">Dark</option>
-<option value="light">Light</option>
-<option value="blue">Blue</option>
-</select>
-
-<h3>Advanced</h3>
-
-<label>
-<input type="checkbox" id="guideToggle" onchange="toggleGuides()">
- Show Guidelines
-</label>
-
-<h4>Enter Developer</h4>
+<h3>Developer Access</h3>
+<div id="codeDisplay"></div>
 <input type="text" id="devCode">
 <button onclick="enterDeveloper()">Enter</button>
 
 <div id="developerPanel" class="hidden">
 <button onclick="openDesigner()">Open Designer</button>
 
-<h4>More Advanced Features</h4>
+<h4>System Override</h4>
 <input type="text" id="overrideCode">
-<button onclick="enterOverride()">System Override</button>
+<button onclick="enterOverride()">Activate</button>
 </div>
 
 <br>
 <button onclick="closeSettings()">Close</button>
-
 </div>
 </div>
 
@@ -141,12 +123,25 @@ border:1px solid #333;
 
 <script>
 
-/* ================= METRICS ================= */
+/* ================= ROTATING CODE SYSTEM ================= */
 
-const LETTER_BOX_WIDTH = 26;
+let CODE_TYPES = ["A","B","C","D","E"];
+let CURRENT_INDEX = 0;
+
+function rotateCode(){
+CURRENT_INDEX = (CURRENT_INDEX+1) % CODE_TYPES.length;
+document.getElementById("codeDisplay").innerText =
+"Enter Code Type: " + CODE_TYPES[CURRENT_INDEX];
+}
+
+rotateCode();
+
+/* ================= FONT METRICS ================= */
+
+const LETTER_BOX_WIDTH = 24;
 const LETTER_SPACING = 2;
 const WORD_SPACING = 10;
-const LINE_HEIGHT = 38;
+const LINE_HEIGHT = 36;
 const SCALE = 0.35;
 
 /* ================= GLOBAL ================= */
@@ -155,7 +150,6 @@ let fontData = {};
 let strokes = [];
 let currentChar = "";
 let drawing = false;
-let showGuides = false;
 let override = false;
 
 /* ================= LOAD LOCAL FONT ================= */
@@ -166,9 +160,40 @@ if(saved) fontData = JSON.parse(saved);
 }
 loadFont();
 
+/* ================= CENTERING ENGINE ================= */
+
+function centerGlyph(glyph){
+
+let minX=Infinity,maxX=-Infinity;
+let minY=Infinity,maxY=-Infinity;
+
+glyph.forEach(stroke=>{
+stroke.forEach(pt=>{
+if(pt[0]<minX) minX=pt[0];
+if(pt[0]>maxX) maxX=pt[0];
+if(pt[1]<minY) minY=pt[1];
+if(pt[1]>maxY) maxY=pt[1];
+});
+});
+
+let width=maxX-minX;
+let height=maxY-minY;
+
+let offsetX = (LETTER_BOX_WIDTH/SCALE - width)/2 - minX;
+let offsetY = (LINE_HEIGHT/SCALE - height)/2 - minY;
+
+return glyph.map(stroke =>
+stroke.map(pt => [
+pt[0] + offsetX,
+pt[1] + offsetY
+])
+);
+}
+
 /* ================= TEXT ENGINE ================= */
 
 function render(){
+
 let ctx = writeCanvas.getContext("2d");
 ctx.clearRect(0,0,writeCanvas.width,writeCanvas.height);
 ctx.strokeStyle="white";
@@ -182,30 +207,13 @@ let y = 20;
 let maxWidth = writeCanvas.width - 5;
 
 function newLine(){
-x = 5;
-y += LINE_HEIGHT;
-}
-
-function drawGlyph(glyph){
-
-let centeredX = x + (LETTER_BOX_WIDTH/2);
-
-glyph.forEach(stroke=>{
-ctx.beginPath();
-ctx.moveTo(centeredX + (stroke[0][0]-200)*SCALE,
-           y + (stroke[0][1]-120)*SCALE);
-
-for(let i=1;i<stroke.length;i++){
-ctx.lineTo(centeredX + (stroke[i][0]-200)*SCALE,
-           y + (stroke[i][1]-120)*SCALE);
-}
-ctx.stroke();
-});
+x=5;
+y+=LINE_HEIGHT;
 }
 
 for(let i=0;i<text.length;i++){
 
-let ch = text[i];
+let ch=text[i];
 
 if(ch===" "){
 x+=WORD_SPACING;
@@ -216,22 +224,30 @@ let glyph = fontData[ch];
 
 if(glyph){
 
-if(x+LETTER_BOX_WIDTH > maxWidth){
+if(x+LETTER_BOX_WIDTH>maxWidth){
 ctx.fillText("-",x,y);
 newLine();
 }
 
-drawGlyph(glyph);
+let centered = centerGlyph(glyph);
+
+centered.forEach(stroke=>{
+ctx.beginPath();
+ctx.moveTo(x+stroke[0][0]*SCALE,
+           y+stroke[0][1]*SCALE);
+for(let j=1;j<stroke.length;j++){
+ctx.lineTo(x+stroke[j][0]*SCALE,
+           y+stroke[j][1]*SCALE);
+}
+ctx.stroke();
+});
+
 x+=LETTER_BOX_WIDTH+LETTER_SPACING;
 
 }else{
 
 let w = ctx.measureText(ch).width;
-
-if(x+w>maxWidth){
-newLine();
-}
-
+if(x+w>maxWidth) newLine();
 ctx.fillText(ch,x,y);
 x+=w+LETTER_SPACING;
 }
@@ -242,36 +258,18 @@ x+=w+LETTER_SPACING;
 
 function openSettings(){
 settingsOverlay.style.display="flex";
+rotateCode();
 }
 
 function closeSettings(){
 settingsOverlay.style.display="none";
 }
 
-function changeTheme(val){
-if(val==="light"){
-document.body.style.background="#f5f5f5";
-document.body.style.color="#111";
-}
-if(val==="blue"){
-document.body.style.background="#0d1b2a";
-document.body.style.color="#e0e1dd";
-}
-if(val==="dark"){
-document.body.style.background="#111";
-document.body.style.color="#fff";
-}
-}
-
-function toggleGuides(){
-showGuides=document.getElementById("guideToggle").checked;
-}
-
-/* ================= DEV ACCESS ================= */
-
 function enterDeveloper(){
-if(btoa(devCode.value)===ENCODED_CODES[CURRENT_CODE_TYPE]){
+let codeType = CODE_TYPES[CURRENT_INDEX];
+if(btoa(devCode.value)===ENCODED_CODES[codeType]){
 developerPanel.classList.remove("hidden");
+rotateCode();
 }else alert("Wrong code");
 }
 
@@ -300,7 +298,7 @@ const chars =
 "ĄČĘĖĮŠŲŪŽąčęėįšųūž"+
 "0123456789!?.,:;+-*/=()[]{}@#%^&<>";
 
-let select = document.getElementById("charSelect");
+let select=document.getElementById("charSelect");
 select.innerHTML="";
 
 for(let c of chars){
@@ -310,13 +308,13 @@ o.innerText=c;
 select.appendChild(o);
 }
 
-select.onchange = e=>{
+select.onchange=e=>{
 saveGlyph();
-currentChar = e.target.value;
+currentChar=e.target.value;
 loadGlyph();
 };
 
-currentChar = select.value;
+currentChar=select.value;
 loadGlyph();
 }
 
@@ -326,22 +324,10 @@ redrawDesigner();
 }
 
 function redrawDesigner(){
-
-let ctx = designCanvas.getContext("2d");
+let ctx=designCanvas.getContext("2d");
 ctx.clearRect(0,0,designCanvas.width,designCanvas.height);
 ctx.strokeStyle="white";
 ctx.lineWidth=2;
-
-if(showGuides){
-ctx.strokeStyle="red";
-ctx.setLineDash([5,5]);
-ctx.beginPath();
-ctx.moveTo(0,150);
-ctx.lineTo(400,150);
-ctx.stroke();
-ctx.setLineDash([]);
-ctx.strokeStyle="white";
-}
 
 strokes.forEach(stroke=>{
 ctx.beginPath();
@@ -356,11 +342,7 @@ ctx.stroke();
 designCanvas.addEventListener("mousedown",e=>{
 let rect=designCanvas.getBoundingClientRect();
 drawing=true;
-strokes.push([]);
-strokes[strokes.length-1].push([
-e.clientX-rect.left,
-e.clientY-rect.top
-]);
+strokes.push([[e.clientX-rect.left,e.clientY-rect.top]]);
 });
 
 designCanvas.addEventListener("mousemove",e=>{
